@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "886958156619",
+    "project_id": "business-finder-2024",
+    "storage_bucket": "business-finder-2024.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:886958156619:android:4123aa4670c6d04d6196ce",
+        "android_client_info": {
+          "package_name": "com.muler.business_finder"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAHOKPSD5pK1mfFM_51pA-Tg3R5OKOVB8U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
