@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:business_finder/src/pages/business_detail_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,7 +6,6 @@ import 'package:geolocator/geolocator.dart';
 import '../models/business_model.dart';
 import '../providers/business_providers.dart';
 import 'forms/create_business_form.dart';
-import 'dart:async';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -16,66 +16,67 @@ class HomePage extends ConsumerStatefulWidget {
 
 class _HomePageState extends ConsumerState<HomePage> {
   final TextEditingController _searchController = TextEditingController();
-  late List<BusinessModel> _filteredBusinesses;
+  List<BusinessModel> _filteredBusinesses = [];
   List<BusinessModel> _allBusinesses = [];
   Timer? _debounce;
-
   Position? _currentPosition;
 
   @override
   void initState() {
     super.initState();
-    _filteredBusinesses = [];
-    _getCurrentLocation();
+    // _fetchCurrentLocation();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
-    _debounce
-        ?.cancel(); // Cancel the debounce timer when the widget is disposed
+    _debounce?.cancel();
     super.dispose();
   }
 
-  // Fetch current location
-  Future<void> _getCurrentLocation() async {
-    try {
-      _currentPosition = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
-      setState(() {}); // Rebuild the widget after getting the position
-    } catch (e) {
-      // Handle the error of getting location
-      print("Could not get location: $e");
-    }
-  }
+  // Get current location with better error handling
+  // Future<void> _fetchCurrentLocation() async {
+  //   try {
+  //     _currentPosition = await Geolocator.getCurrentPosition(
+  //       desiredAccuracy: LocationAccuracy.high,
+  //     );
+  //     debugPrint('Location fetched: $_currentPosition');
+  //   } catch (e) {
+  //     debugPrint("Error getting location: $e");
+  //   }
+  // }
 
+  // Filter businesses based on search query
   void _filterBusinesses(String query) {
-    setState(() {
-      if (query.isEmpty) {
+    if (query.isEmpty) {
+      setState(() {
         _filteredBusinesses = List.from(_allBusinesses);
-      } else {
-        _filteredBusinesses = _allBusinesses
-            .where((business) =>
-                business.name.toLowerCase().contains(query.toLowerCase()) ||
-                business.location.address
-                    .toLowerCase()
-                    .contains(query.toLowerCase()))
-            .toList();
-      }
+      });
+      return;
+    }
+
+    final filtered = _allBusinesses
+        .where((business) =>
+            business.name.toLowerCase().contains(query.toLowerCase()) ||
+            business.location.address
+                .toLowerCase()
+                .contains(query.toLowerCase()))
+        .toList();
+
+    setState(() {
+      _filteredBusinesses = filtered;
     });
   }
 
+  // Debounce search input to improve performance
   void _onSearchChanged(String query) {
-    // Cancel any existing timer
     _debounce?.cancel();
-    // Start a new timer
     _debounce = Timer(const Duration(milliseconds: 300), () {
-      _filterBusinesses(query); // Call filtering after a delay
+      _filterBusinesses(query);
     });
   }
 
   Future<void> _refreshBusinesses() async {
-    // Trigger the provider to fetch the latest businesses
     ref.invalidate(businessNotifierProvider);
   }
 
@@ -88,7 +89,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           business.location.latitude,
           business.location.longitude,
         ) /
-        1000; // Convert meters to kilometers
+        1000; // Convert to kilometers
   }
 
   @override
@@ -98,7 +99,6 @@ class _HomePageState extends ConsumerState<HomePage> {
     return Scaffold(
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
         onPressed: () {
           Navigator.push(
             context,
@@ -110,35 +110,29 @@ class _HomePageState extends ConsumerState<HomePage> {
       body: businessesAsync.when(
         data: (businesses) {
           _allBusinesses = businesses;
-
-          // Only filter and set the filtered businesses if the current position is known
-          if (_currentPosition != null) {
-            if (_searchController.text.isEmpty) {
-              _filteredBusinesses = businesses;
-            }
+          if (_searchController.text.isEmpty) {
+            _filteredBusinesses = businesses;
           }
           return _buildRefreshableList();
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, _) => Center(child: Text('Error: $err')),
+        error: (error, _) => Center(
+          child: Text('Failed to load businesses: $error'),
+        ),
       ),
     );
   }
 
-  // Widget that builds the pull-to-refresh functionality
   Widget _buildRefreshableList() {
     return RefreshIndicator(
-      onRefresh:
-          _refreshBusinesses, // The function that will be called on refresh
+      onRefresh: _refreshBusinesses,
       child: _buildCustomScrollView(),
     );
   }
 
-  // CustomScrollView with Search Input and Business List
   Widget _buildCustomScrollView() {
     return CustomScrollView(
       slivers: [
-        // Collapsible SliverAppBar
         const SliverAppBar(
           backgroundColor: Colors.white,
           title: Text(
@@ -156,12 +150,8 @@ class _HomePageState extends ConsumerState<HomePage> {
         SliverList(
           delegate: SliverChildBuilderDelegate(
             (context, index) {
-              if (index >= _filteredBusinesses.length) {
-                return Container(); // Safeguard against overflow
-              }
-              final business = _filteredBusinesses[index];
-              return _buildBusinessCard(
-                  business); // Use the BusinessCard widget here
+              if (index >= _filteredBusinesses.length) return const SizedBox();
+              return _buildBusinessCard(_filteredBusinesses[index]);
             },
             childCount: _filteredBusinesses.length,
           ),
@@ -171,42 +161,74 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Widget _buildSearchBar() {
-    return SliverToBoxAdapter(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: TextField(
-          controller: _searchController,
-          onChanged: _onSearchChanged,
-          decoration: InputDecoration(
-            hintText: 'Search for businesses...',
-            prefixIcon: const Icon(Icons.search),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(30.0),
-              borderSide: BorderSide.none,
-            ),
-            filled: true,
-            fillColor: Colors.grey[200],
+    return SliverPersistentHeader(
+      floating: true,
+      delegate: _SearchBarDelegate(
+        searchController: _searchController,
+        onSearchChanged: _onSearchChanged,
+      ),
+      pinned: true,
+    );
+  }
+
+  Widget _buildBusinessCard(BusinessModel business) {
+    final distance = '${_calculateDistance(business).toStringAsFixed(1)} km';
+
+    return BusinessCard(
+      business: business,
+      title: business.name,
+      address: business.location.address,
+      rating: 4.0,
+      reviewsCount: 10,
+      status: 'Open now',
+      distance: distance,
+      isSponsored: false,
+      imageUrl: business.imageUrl,
+    );
+  }
+}
+
+class _SearchBarDelegate extends SliverPersistentHeaderDelegate {
+  final TextEditingController searchController;
+  final ValueChanged<String> onSearchChanged;
+
+  _SearchBarDelegate({
+    required this.searchController,
+    required this.onSearchChanged,
+  });
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      padding: const EdgeInsets.all(16.0),
+      color: Colors.white,
+      child: TextField(
+        controller: searchController,
+        onChanged: onSearchChanged,
+        decoration: InputDecoration(
+          hintText: 'Search for businesses...',
+          prefixIcon: const Icon(Icons.search),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(30.0),
+            borderSide: BorderSide.none,
           ),
+          filled: true,
+          fillColor: Colors.grey[200],
         ),
       ),
     );
   }
 
-  // Widget to build each business tile using the custom BusinessCard widget
-  Widget _buildBusinessCard(BusinessModel business) {
-    double distanceValue = _calculateDistance(business);
-    String formattedDistance = '${distanceValue.toStringAsFixed(1)} km';
-    return BusinessCard(
-      title: business.name,
-      address: business.location.address,
-      rating: 2.0,
-      reviewsCount: 12,
-      status: 'Open now',
-      distance: formattedDistance,
-      isSponsored: false,
-      imageUrl: business.imageUrl,
-      business: business,
-    );
+  @override
+  double get maxExtent => 80.0;
+
+  @override
+  double get minExtent => 80.0;
+
+  @override
+  bool shouldRebuild(covariant SliverPersistentHeaderDelegate oldDelegate) {
+    return false;
   }
 }
 

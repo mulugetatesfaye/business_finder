@@ -16,7 +16,6 @@ class _BottomNavBarScreenState extends ConsumerState<BottomNavBarScreen> {
   int _currentIndex = 0;
 
   final List<Widget> _pages = [
-    const HomePage(),
     const MapPage(),
     const ProfilePage(),
   ];
@@ -52,10 +51,6 @@ class _BottomNavBarScreenState extends ConsumerState<BottomNavBarScreen> {
           BottomNavigationBarItem(
             icon: Icon(CupertinoIcons.home),
             label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(CupertinoIcons.map),
-            label: 'Map',
           ),
           BottomNavigationBarItem(
             icon: Icon(CupertinoIcons.person_circle),
