@@ -2,13 +2,15 @@ class BusinessModel {
   String businessId;
   String ownerId; // Links to UserModel
   String name;
-  String description;
-  String categoryId; // Links to CategoryModel
-  String contactNumber;
-  String email;
-  String? website;
-  String imageUrl;
-  LocationModel location;
+  String? description; // Optional
+  String? categoryId; // Optional
+  String? contactNumber; // Optional
+  String? email; // Optional
+  String? website; // Optional
+  String? imageUrl; // Optional
+  LocationModel? location; // Optional
+  Map<String, String>? workingHours; // Optional
+  String? status; // Optional, e.g., "Open" or "Closed"
   double averageRating;
   int reviewCount;
   bool isFeatured;
@@ -19,13 +21,15 @@ class BusinessModel {
     required this.businessId,
     required this.ownerId,
     required this.name,
-    required this.description,
-    required this.categoryId,
-    required this.contactNumber,
-    required this.email,
+    this.description,
+    this.categoryId,
+    this.contactNumber,
+    this.email,
     this.website,
-    required this.imageUrl,
-    required this.location,
+    this.imageUrl,
+    this.location,
+    this.workingHours,
+    this.status,
     this.averageRating = 0.0,
     this.reviewCount = 0,
     this.isFeatured = false,
@@ -38,16 +42,21 @@ class BusinessModel {
       businessId: json['businessId'] as String,
       ownerId: json['ownerId'] as String,
       name: json['name'] as String,
-      description: json['description'] as String,
-      categoryId: json['categoryId'] as String,
-      contactNumber: json['contactNumber'] as String,
-      email: json['email'] as String,
+      description: json['description'] as String?,
+      categoryId: json['categoryId'] as String?,
+      contactNumber: json['contactNumber'] as String?,
+      email: json['email'] as String?,
       website: json['website'] as String?,
-      imageUrl: json['imageUrl'] as String,
-      location: LocationModel.fromJson(json['location']),
-      averageRating: (json['averageRating'] as num).toDouble(),
-      reviewCount: json['reviewCount'] as int,
-      isFeatured: json['isFeatured'] as bool,
+      imageUrl: json['imageUrl'] as String?,
+      location: json['location'] != null
+          ? LocationModel.fromJson(json['location'])
+          : null,
+      workingHours: (json['workingHours'] as Map<String, dynamic>?)
+          ?.map((key, value) => MapEntry(key, value as String)),
+      status: json['status'] as String?,
+      averageRating: (json['averageRating'] as num?)?.toDouble() ?? 0.0,
+      reviewCount: json['reviewCount'] as int? ?? 0,
+      isFeatured: json['isFeatured'] as bool? ?? false,
       createdAt: DateTime.parse(json['createdAt'] as String),
     );
   }
@@ -64,7 +73,9 @@ class BusinessModel {
       'email': email,
       'website': website,
       'imageUrl': imageUrl,
-      'location': location.toJson(),
+      'location': location?.toJson(),
+      'workingHours': workingHours,
+      'status': status,
       'averageRating': averageRating,
       'reviewCount': reviewCount,
       'isFeatured': isFeatured,
@@ -79,8 +90,6 @@ class LocationModel {
   String address;
   String city;
   String state;
-  String country;
-  String postalCode;
 
   // Constructor
   LocationModel({
@@ -89,8 +98,6 @@ class LocationModel {
     required this.address,
     required this.city,
     required this.state,
-    required this.country,
-    required this.postalCode,
   });
 
   // **fromJson Method**
@@ -101,8 +108,6 @@ class LocationModel {
       address: json['address'] as String,
       city: json['city'] as String,
       state: json['state'] as String,
-      country: json['country'] as String,
-      postalCode: json['postalCode'] as String,
     );
   }
 
@@ -114,8 +119,6 @@ class LocationModel {
       'address': address,
       'city': city,
       'state': state,
-      'country': country,
-      'postalCode': postalCode,
     };
   }
 }

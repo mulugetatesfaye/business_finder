@@ -1,16 +1,17 @@
 import 'package:business_finder/app_bottnavigation.dart';
 import 'package:business_finder/src/pages/authentication/signup_page.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:business_finder/src/services/auth_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class LoginPage extends StatefulWidget {
+class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
 
   @override
   _LoginPageState createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _LoginPageState extends ConsumerState<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -27,30 +28,33 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      // Attempt to log in the user using FirebaseAuth
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+      // Get the auth service from the provider
+      final authService = ref.read(authServiceProvider);
+
+      // Attempt to log in the user
+      final user = await authService.login(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
       );
 
-      // Navigate to the home page or dashboard upon successful login
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (context) => const BottomNavBarScreen(),
-        ),
-        (route) => false,
-      );
-    } on FirebaseAuthException catch (e) {
-      String errorMessage = 'Login failed';
-      if (e.code == 'user-not-found') {
-        errorMessage = 'No user found with this email.';
-      } else if (e.code == 'wrong-password') {
-        errorMessage = 'Incorrect password.';
+      if (user != null) {
+        // Navigate to the home page or dashboard upon successful login
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (context) => const BottomNavBarScreen(),
+          ),
+          (route) => false,
+        );
+      } else {
+        // Display error message if login fails
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Login failed. Please try again.')),
+        );
       }
-
-      // Display error message
+    } catch (e) {
+      // Handle exceptions and display error message
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMessage)),
+        SnackBar(content: Text('Error: $e')),
       );
     } finally {
       // Stop loading indicator
@@ -75,7 +79,7 @@ class _LoginPageState extends State<LoginPage> {
             // App logo
             const Center(
               child: Text(
-                "Business Finder",
+                "Yet",
                 style: TextStyle(
                   color: Colors.orange,
                   fontSize: 32,

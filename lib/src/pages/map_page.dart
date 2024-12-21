@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'package:business_finder/src/models/business_model.dart';
+import 'package:business_finder/src/pages/business_detail_page.dart';
 import 'package:business_finder/src/services/business_service.dart';
+import 'package:business_finder/src/services/permission_service.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:location/location.dart';
 import 'package:material_floating_search_bar_2/material_floating_search_bar_2.dart';
 
 class MapPage extends StatefulWidget {
@@ -16,14 +17,25 @@ class MapPage extends StatefulWidget {
 
 class _MapPageState extends State<MapPage> {
   final Completer<GoogleMapController> _controller = Completer();
-  final BusinessService _businessService = BusinessService();
+  final FirebaseBusinessService _businessService = FirebaseBusinessService();
   final Set<Marker> _markers = {};
+
+  final PermissionService _permissionService = PermissionService();
 
   List<BusinessModel> _businesses = [];
   List<BusinessModel> _filteredBusinesses = [];
 
+  final List<String> _categories = [
+    'All',
+    'Restaurants',
+    'Police',
+    'Shop',
+    'Health'
+  ]; // Add your categories here
+  String _selectedCategory = '';
+
   Position? _currentPosition;
-  double _searchRadius = 10.0;
+  double _searchRadius = 20.0;
 
   final FloatingSearchBarController _searchBarController =
       FloatingSearchBarController();
@@ -40,48 +52,73 @@ class _MapPageState extends State<MapPage> {
 
   Future<void> _initializeMap() async {
     try {
-      final locationData = await _getUserLocation();
-      _currentPosition = Position(
-        latitude: locationData.latitude!,
-        longitude: locationData.longitude!,
-        timestamp: DateTime.now(),
-        accuracy: locationData.accuracy ?? 0,
-        altitude: locationData.altitude ?? 0,
-        heading: locationData.heading ?? 0,
-        speed: locationData.speed ?? 0,
-        speedAccuracy: locationData.speedAccuracy ?? 0,
-        headingAccuracy: locationData.headingAccuracy ?? 0,
-        altitudeAccuracy: locationData.altitude ?? 0,
-      );
+      // Check if location services are enabled
+      if (!(await Geolocator.isLocationServiceEnabled())) {
+        debugPrint('Location services are disabled.');
+        _showErrorToUser('Please enable location services to proceed.');
+        return;
+      }
 
-      _moveCamera(
-          LatLng(locationData.latitude!, locationData.longitude!), 17.0);
-      await _fetchAndFilterBusinesses();
+      // Request location permission
+      final permission = await Geolocator.requestPermission();
+
+      if (permission == LocationPermission.always ||
+          permission == LocationPermission.whileInUse) {
+        // Fetch user location
+        final locationData = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 10, // Minimum change in meters for updates
+          ),
+        );
+
+        // Set the current position
+        // Set the current position
+        _currentPosition = Position(
+          latitude: locationData.latitude,
+          longitude: locationData.longitude,
+          timestamp: DateTime.now(),
+          accuracy: locationData.accuracy,
+          altitude: locationData.altitude,
+          heading: locationData.heading,
+          speed: locationData.speed,
+          speedAccuracy: locationData.speedAccuracy,
+          headingAccuracy: locationData.headingAccuracy,
+          altitudeAccuracy: locationData.altitude,
+        );
+
+        // Move the camera and fetch businesses
+        final userLatLng =
+            LatLng(locationData.latitude, locationData.longitude);
+        _moveCamera(userLatLng, 17.0);
+        await _fetchAndFilterBusinesses();
+      } else if (permission == LocationPermission.deniedForever) {
+        debugPrint('Location permission is permanently denied.');
+        await Geolocator.openAppSettings();
+        _showErrorToUser(
+            'Location permission is permanently denied. Please enable it in settings.');
+      } else {
+        debugPrint('Location permission denied.');
+        _showErrorToUser(
+            'Location permission denied. Please allow it to proceed.');
+      }
     } catch (e) {
       debugPrint('Error initializing map: $e');
+      _showErrorToUser('An unexpected error occurred. Please try again.');
     }
   }
 
-  Future<LocationData> _getUserLocation() async {
-    final location = Location();
-
-    if (!(await location.serviceEnabled()) &&
-        !(await location.requestService())) {
-      throw Exception('Location services are disabled.');
-    }
-
-    if (await location.hasPermission() == PermissionStatus.denied &&
-        await location.requestPermission() != PermissionStatus.granted) {
-      throw Exception('Location permissions are denied.');
-    }
-
-    return await location.getLocation();
+  void _showErrorToUser(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   Future<void> _fetchAndFilterBusinesses() async {
     try {
       final businesses = await _businessService.fetchBusinessesOnce();
       if (businesses.isNotEmpty) {
+        if (!mounted) return; // Check if mounted before setState
         setState(() {
           _businesses =
               _filterBusinessesByRadius(businesses); // Filter businesses.
@@ -108,7 +145,7 @@ class _MapPageState extends State<MapPage> {
       builder: (context) => AlertDialog(
         title: Text(business.name),
         content: Text(
-          'Address: ${business.location.address}\n'
+          'Address: ${business.location!.address}\n'
           'Contact: ${business.contactNumber}',
         ),
         actions: [
@@ -122,22 +159,23 @@ class _MapPageState extends State<MapPage> {
   }
 
   void _loadBusinessMarkers(List<BusinessModel> businesses) {
+    final markers = businesses.map((business) {
+      return Marker(
+        markerId: MarkerId(business.businessId),
+        position:
+            LatLng(business.location!.latitude, business.location!.longitude),
+        infoWindow: InfoWindow(
+          title: business.name,
+          snippet: business.location!.address,
+          onTap: () => _showBusinessDetails(business),
+        ),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+      );
+    }).toSet();
+
     setState(() {
-      _markers.clear();
-      _markers.addAll(businesses.map((business) {
-        return Marker(
-          markerId: MarkerId(business.businessId),
-          position:
-              LatLng(business.location.latitude, business.location.longitude),
-          infoWindow: InfoWindow(
-            title: business.name,
-            snippet: business.location.address,
-            onTap: () => _showBusinessDetails(business),
-          ),
-          icon:
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
-        );
-      }));
+      _markers.clear(); // Clear previous markers before adding new ones
+      _markers.addAll(markers);
     });
   }
 
@@ -146,8 +184,8 @@ class _MapPageState extends State<MapPage> {
     return Geolocator.distanceBetween(
           _currentPosition!.latitude,
           _currentPosition!.longitude,
-          business.location.latitude,
-          business.location.longitude,
+          business.location!.latitude,
+          business.location!.longitude,
         ) /
         1000;
   }
@@ -165,11 +203,71 @@ class _MapPageState extends State<MapPage> {
       _filteredBusinesses = _businesses
           .where((business) =>
               business.name.toLowerCase().contains(query.toLowerCase()) ||
-              business.location.address
+              business.location!.address
                   .toLowerCase()
                   .contains(query.toLowerCase()))
           .toList();
     });
+  }
+
+  // Method to filter businesses by category
+  void _filterBusinessesByCategory(String category) {
+    setState(() {
+      _selectedCategory = category;
+      _filteredBusinesses = _businesses
+          .where((business) => business.categoryId == category)
+          .toList();
+    });
+    _showBusinessModal();
+  }
+
+  // Show bottom modal with the filtered businesses list
+  void _showBusinessModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          expand: false,
+          builder: (context, scrollController) {
+            return _filteredBusinesses.isNotEmpty
+                ? ListView.builder(
+                    controller: scrollController,
+                    itemCount: _filteredBusinesses.length,
+                    itemBuilder: (context, index) {
+                      final business = _filteredBusinesses[index];
+                      return ListTile(
+                        title: Text(business.name),
+                        subtitle: Text(business.location!.address),
+                        onTap: () {
+                          Navigator.of(context).push(MaterialPageRoute(
+                            builder: (context) => BusinessDetailPage(
+                              businessModel: business,
+                            ),
+                          ));
+                        },
+                      );
+                    },
+                  )
+                : const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: Text(
+                        'No businesses found in this category.',
+                        style: TextStyle(fontSize: 16, color: Colors.grey),
+                      ),
+                    ),
+                  );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _searchBarController.dispose();
+    super.dispose();
   }
 
   @override
@@ -182,14 +280,24 @@ class _MapPageState extends State<MapPage> {
         children: [
           _buildGoogleMap(),
           _buildFloatingSearchBar(),
-          Positioned(
-            bottom: 16, // Adjust for padding at the bottom
-            left: 0,
-            right: 0,
-            child: _buildBusinessHorizontalList(),
-          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildCategoryChips() {
+    return Wrap(
+      spacing: 8.0,
+      alignment: WrapAlignment.center,
+      children: _categories.map((category) {
+        return ChoiceChip(
+          label: Text(category),
+          selected: _selectedCategory == category,
+          onSelected: (selected) {
+            if (selected) _filterBusinessesByCategory(category);
+          },
+        );
+      }).toList(),
     );
   }
 
@@ -213,10 +321,15 @@ class _MapPageState extends State<MapPage> {
   Widget _buildFlatBusinessCard(BusinessModel business) {
     return GestureDetector(
       onTap: () {
-        _moveCamera(
-          LatLng(business.location.latitude, business.location.longitude),
-          17.0,
-        );
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (context) => BusinessDetailPage(
+            businessModel: business,
+          ),
+        ));
+        // _moveCamera(
+        //   LatLng(business.location.latitude, business.location.longitude),
+        //   17.0,
+        // );
       },
       child: Container(
         width: 300, // Adjusted width for balanced layout
@@ -253,7 +366,7 @@ class _MapPageState extends State<MapPage> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    business.location.address,
+                    business.location!.address,
                     style: const TextStyle(
                       fontSize: 14,
                       color: Colors.grey,
@@ -280,19 +393,21 @@ class _MapPageState extends State<MapPage> {
             const SizedBox(width: 8),
             // Image on the right with rounded corners
             ClipRRect(
-              borderRadius: BorderRadius.circular(8.0),
-              child: Image.network(
-                business.imageUrl,
-                height: 80, // Smaller size to fit design
-                width: 80,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => const Icon(
-                  Icons.image_not_supported,
-                  size: 50,
-                  color: Colors.grey,
-                ),
-              ),
-            ),
+                borderRadius: BorderRadius.circular(8.0),
+                child: Image.network(
+                  business.imageUrl!,
+                  height: 80,
+                  width: 80,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    debugPrint('Error loading image: $error'); // Log the error.
+                    return const Icon(
+                      Icons.image_not_supported,
+                      size: 50,
+                      color: Colors.grey,
+                    );
+                  },
+                )),
           ],
         ),
       ),
@@ -304,9 +419,14 @@ class _MapPageState extends State<MapPage> {
       mapType: MapType.terrain,
       initialCameraPosition: _initialPosition,
       myLocationButtonEnabled: true,
-      padding: const EdgeInsets.only(top: 90),
       myLocationEnabled: true,
+      zoomControlsEnabled: false,
       markers: _markers,
+      padding: EdgeInsets.only(
+        top: _searchBarController.isOpen
+            ? 150
+            : 90, // Adjust padding dynamically.
+      ),
       onMapCreated: (controller) => _controller.complete(controller),
     );
   }
@@ -345,14 +465,15 @@ class _MapPageState extends State<MapPage> {
               final business = _filteredBusinesses[index];
               return ListTile(
                 title: Text(business.name),
-                subtitle: Text(business.location.address),
+                subtitle: Text(business.location!.address),
                 onTap: () {
                   _moveCamera(
-                    LatLng(business.location.latitude,
-                        business.location.longitude),
-                    17.0,
-                  );
-                  _searchBarController.close();
+                      LatLng(business.location!.latitude,
+                          business.location!.longitude),
+                      17.0);
+                  _searchBarController
+                      .close(); // Close search bar on selection.
+                  FocusScope.of(context).unfocus(); // Dismiss keyboard.
                 },
               );
             },
@@ -385,7 +506,7 @@ class _MapPageState extends State<MapPage> {
     return ListTile(
       leading: Icon(icon),
       title: Text(title),
-      onTap: () => Navigator.pop(context),
+      onTap: () => Navigator.of(context).maybePop(),
     );
   }
 

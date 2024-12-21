@@ -1,11 +1,53 @@
 import 'dart:async';
-import 'package:business_finder/src/pages/business_detail_page.dart';
+import 'package:business_finder/src/models/category_model.dart';
+import 'package:business_finder/src/pages/widgets/grid_business_card.dart';
+import 'package:business_finder/src/services/category_service.dart';
+import 'package:business_finder/src/services/location_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/business_model.dart';
 import '../providers/business_providers.dart';
-import 'forms/create_business_form.dart';
+
+final categoriesProvider = FutureProvider<List<CategoryModel>>((ref) async {
+  final querySnapshot =
+      await FirebaseFirestore.instance.collection('categories').get();
+  return querySnapshot.docs.map((doc) {
+    return CategoryModel.fromJson(doc.data());
+  }).toList();
+});
+
+final businessesByCategoryProvider =
+    FutureProvider.family<List<BusinessModel>, String>((ref, categoryId) async {
+  final querySnapshot = await FirebaseFirestore.instance
+      .collection('businesses')
+      .where('categoryId', isEqualTo: categoryId)
+      .get();
+
+  return querySnapshot.docs
+      .map((doc) => BusinessModel.fromJson(doc.data()))
+      .toList();
+});
+
+// Riverpod state for managing search queries
+final searchQueryProvider = StateProvider<String>((ref) => '');
+
+// Provider to filter businesses based on search query
+final filteredBusinessesProvider =
+    Provider<AsyncValue<List<BusinessModel>>>((ref) {
+  final query = ref.watch(searchQueryProvider);
+  final asyncBusinesses = ref.watch(businessNotifierProvider);
+  final lowerCaseQuery = query.toLowerCase();
+
+  return asyncBusinesses.whenData((data) {
+    return data.where((business) {
+      final name = business.name.toLowerCase();
+      final address = business.location!.address.toLowerCase();
+      return name.contains(lowerCaseQuery) || address.contains(lowerCaseQuery);
+    }).toList();
+  });
+});
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -16,384 +58,271 @@ class HomePage extends ConsumerStatefulWidget {
 
 class _HomePageState extends ConsumerState<HomePage> {
   final TextEditingController _searchController = TextEditingController();
-  List<BusinessModel> _filteredBusinesses = [];
-  List<BusinessModel> _allBusinesses = [];
-  Timer? _debounce;
   Position? _currentPosition;
+
+  final LocationService _locationService = LocationService();
 
   @override
   void initState() {
     super.initState();
-    // _fetchCurrentLocation();
+    _searchController.addListener(() {
+      ref.read(searchQueryProvider.notifier).state = _searchController.text;
+    });
+    _fetchCurrentLocation();
   }
 
   @override
   void dispose() {
+    _searchController.removeListener(() {});
     _searchController.dispose();
-    _debounce?.cancel();
     super.dispose();
   }
 
-  // Get current location with better error handling
-  // Future<void> _fetchCurrentLocation() async {
-  //   try {
-  //     _currentPosition = await Geolocator.getCurrentPosition(
-  //       desiredAccuracy: LocationAccuracy.high,
-  //     );
-  //     debugPrint('Location fetched: $_currentPosition');
-  //   } catch (e) {
-  //     debugPrint("Error getting location: $e");
-  //   }
-  // }
-
-  // Filter businesses based on search query
-  void _filterBusinesses(String query) {
-    if (query.isEmpty) {
-      setState(() {
-        _filteredBusinesses = List.from(_allBusinesses);
-      });
-      return;
+  Future<void> _fetchCurrentLocation() async {
+    try {
+      final position = await _locationService.fetchCurrentLocation();
+      // Ensure the widget is still mounted before updating state
+      if (mounted) {
+        setState(() {
+          _currentPosition = position;
+        });
+      }
+    } catch (e) {
+      // Ensure the widget is still mounted before showing a Snackbar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to get location: ${e.toString()}')),
+        );
+      }
     }
-
-    final filtered = _allBusinesses
-        .where((business) =>
-            business.name.toLowerCase().contains(query.toLowerCase()) ||
-            business.location.address
-                .toLowerCase()
-                .contains(query.toLowerCase()))
-        .toList();
-
-    setState(() {
-      _filteredBusinesses = filtered;
-    });
-  }
-
-  // Debounce search input to improve performance
-  void _onSearchChanged(String query) {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 300), () {
-      _filterBusinesses(query);
-    });
   }
 
   Future<void> _refreshBusinesses() async {
     ref.invalidate(businessNotifierProvider);
   }
 
-  double _calculateDistance(BusinessModel business) {
-    if (_currentPosition == null) return 0.0;
-
-    return Geolocator.distanceBetween(
-          _currentPosition!.latitude,
-          _currentPosition!.longitude,
-          business.location.latitude,
-          business.location.longitude,
-        ) /
-        1000; // Convert to kilometers
-  }
-
   @override
   Widget build(BuildContext context) {
-    final businessesAsync = ref.watch(businessNotifierProvider);
+    final businessesAsync = ref.watch(filteredBusinessesProvider);
 
-    return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.black,
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const CreateBusinessPage()),
-          );
-        },
-        child: const Icon(Icons.add),
-      ),
-      body: businessesAsync.when(
-        data: (businesses) {
-          _allBusinesses = businesses;
-          if (_searchController.text.isEmpty) {
-            _filteredBusinesses = businesses;
-          }
-          return _buildRefreshableList();
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Text('Failed to load businesses: $error'),
+    return SafeArea(
+      child: Scaffold(
+        body: RefreshIndicator(
+          onRefresh: _refreshBusinesses,
+          child: businessesAsync.when(
+            data: (businesses) => _buildBusinessList(businesses),
+            loading: () => _buildLoadingState(),
+            error: (error, _) => _buildErrorState(),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildRefreshableList() {
-    return RefreshIndicator(
-      onRefresh: _refreshBusinesses,
-      child: _buildCustomScrollView(),
-    );
-  }
-
-  Widget _buildCustomScrollView() {
+  Widget _buildBusinessList(List<BusinessModel> businesses) {
     return CustomScrollView(
       slivers: [
-        const SliverAppBar(
-          backgroundColor: Colors.white,
-          title: Text(
-            'የት',
-            style: TextStyle(
-              color: Colors.black,
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-            ),
+        SliverAppBar(
+          backgroundColor: Colors.black,
+          elevation: 0,
+          title: Image.asset(
+            'assets/yet_logo.png',
+            height: 50,
           ),
-          centerTitle: true,
-          pinned: true,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.notifications_active_outlined,
+                  color: Colors.white),
+              onPressed: () {},
+            ),
+          ],
         ),
         _buildSearchBar(),
-        SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              if (index >= _filteredBusinesses.length) return const SizedBox();
-              return _buildBusinessCard(_filteredBusinesses[index]);
-            },
-            childCount: _filteredBusinesses.length,
-          ),
-        ),
+        SliverToBoxAdapter(child: buildCategorySection()),
+
+        // Only show the business section if there are businesses, otherwise display "No businesses found"
+        businesses.isEmpty
+            ? SliverToBoxAdapter(child: _buildEmptyState())
+            : SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 4,
+                    crossAxisSpacing: 4,
+                    childAspectRatio: 2 / 2.5,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final business = businesses[index];
+                      return GridBusinessCard(
+                        business: business,
+                        currentPosition:
+                            _currentPosition, // Pass the user's location
+                      );
+                    },
+                    childCount: businesses.length,
+                  ),
+                ),
+              ),
       ],
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return const Center(
+      child: CircularProgressIndicator(),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error, color: Colors.red, size: 64),
+          const SizedBox(height: 16),
+          const Text(
+            'Failed to load data. Please try again.',
+            style: TextStyle(fontSize: 16),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _refreshBusinesses,
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildSearchBar() {
     return SliverPersistentHeader(
       floating: true,
+      pinned: true,
       delegate: _SearchBarDelegate(
         searchController: _searchController,
-        onSearchChanged: _onSearchChanged,
       ),
-      pinned: true,
     );
   }
 
-  Widget _buildBusinessCard(BusinessModel business) {
-    final distance = '${_calculateDistance(business).toStringAsFixed(1)} km';
+  Widget buildCategorySection() {
+    return Container(
+      padding: const EdgeInsets.only(bottom: 12, left: 8, right: 8),
+      // color: Colors.white,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: CategoryService.categories.map((category) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundColor: Colors.grey[200],
+                    child: Icon(
+                      category.icon,
+                      color: category.color,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    category.name,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
 
-    return BusinessCard(
-      business: business,
-      title: business.name,
-      address: business.location.address,
-      rating: 4.0,
-      reviewsCount: 10,
-      status: 'Open now',
-      distance: distance,
-      isSponsored: false,
-      imageUrl: business.imageUrl,
+  Widget _buildEmptyState() {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.business,
+              size: 64,
+              color: Colors.grey,
+            ),
+            SizedBox(height: 16),
+            Text(
+              'No businesses found!',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
 class _SearchBarDelegate extends SliverPersistentHeaderDelegate {
   final TextEditingController searchController;
-  final ValueChanged<String> onSearchChanged;
 
-  _SearchBarDelegate({
+  const _SearchBarDelegate({
     required this.searchController,
-    required this.onSearchChanged,
   });
 
   @override
   Widget build(
       BuildContext context, double shrinkOffset, bool overlapsContent) {
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      color: Colors.white,
-      child: TextField(
-        controller: searchController,
-        onChanged: onSearchChanged,
-        decoration: InputDecoration(
-          hintText: 'Search for businesses...',
-          prefixIcon: const Icon(Icons.search),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(30.0),
-            borderSide: BorderSide.none,
+    return Material(
+      elevation: 0,
+      child: Padding(
+        padding:
+            const EdgeInsets.only(top: 12.0, bottom: 8, left: 12.0, right: 12),
+        child: TextField(
+          controller: searchController,
+          decoration: InputDecoration(
+            hintText: 'What are you looking for...',
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: searchController.text.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () {
+                      searchController.clear(); // Clear the text field
+                    },
+                  )
+                : null, // Don't show the clear button if the text field is empty
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            filled: true,
+            fillColor: Colors.grey[200],
           ),
-          filled: true,
-          fillColor: Colors.grey[200],
         ),
       ),
     );
   }
 
   @override
-  double get maxExtent => 80.0;
+  double get maxExtent => 80;
 
   @override
-  double get minExtent => 80.0;
+  double get minExtent => 80;
 
   @override
   bool shouldRebuild(covariant SliverPersistentHeaderDelegate oldDelegate) {
     return false;
-  }
-}
-
-class BusinessCard extends StatelessWidget {
-  final BusinessModel business;
-  final String title;
-  final String address;
-  final double rating;
-  final int reviewsCount;
-  final String status;
-  final String distance;
-  final bool isSponsored;
-  final String imageUrl;
-
-  const BusinessCard({
-    super.key,
-    required this.title,
-    required this.address,
-    required this.rating,
-    required this.reviewsCount,
-    required this.status,
-    required this.distance,
-    required this.isSponsored,
-    required this.imageUrl,
-    required this.business,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () {
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (context) => BusinessDetailPage(
-            business: business,
-          ),
-        ));
-      },
-      child: Card(
-        margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
-        child: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Business Image or Logo
-              Container(
-                height: 50,
-                width: 50,
-                decoration: BoxDecoration(
-                  image: DecorationImage(
-                    image: NetworkImage(imageUrl),
-                    fit: BoxFit.cover,
-                  ),
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-              ),
-              const SizedBox(width: 8.0),
-
-              // Main Card Information
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Title and Sponsored label
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                        if (isSponsored)
-                          Container(
-                            margin: const EdgeInsets.only(left: 8.0),
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 2.0,
-                              horizontal: 8.0,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.grey[300],
-                              borderRadius: BorderRadius.circular(8.0),
-                            ),
-                            child: const Text(
-                              'SPONSORED',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 4.0),
-
-                    // Rating and Reviews
-                    Row(
-                      children: [
-                        const Icon(Icons.star, color: Colors.orange, size: 16),
-                        const SizedBox(width: 4.0),
-                        Text(
-                          rating.toString(),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(width: 4.0),
-                        Text(
-                          '($reviewsCount)',
-                          style: const TextStyle(color: Colors.black54),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 4.0),
-
-                    // Address
-                    Text(
-                      address,
-                      style: const TextStyle(color: Colors.black87),
-                    ),
-
-                    const SizedBox(height: 4.0),
-
-                    // Status (Open/Closed)
-                    Row(
-                      children: [
-                        Text(
-                          status,
-                          style: TextStyle(
-                            color: status.toLowerCase() == 'open now'
-                                ? Colors.green
-                                : Colors.red,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        if (status.toLowerCase() == 'open now')
-                          const Text(
-                            ', Closes at midnight',
-                            style: TextStyle(color: Colors.black54),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              // Distance
-              Text(
-                distance,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.green,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }

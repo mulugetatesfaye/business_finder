@@ -4,7 +4,7 @@ import '../services/business_service.dart';
 
 // StateNotifier to manage businesses state
 class BusinessNotifier extends StateNotifier<AsyncValue<List<BusinessModel>>> {
-  final BusinessService _service;
+  final FirebaseBusinessService _service;
 
   BusinessNotifier(this._service) : super(const AsyncValue.loading()) {
     _loadBusinesses();
@@ -33,5 +33,5 @@ class BusinessNotifier extends StateNotifier<AsyncValue<List<BusinessModel>>> {
 // Provider to expose BusinessNotifier
 final businessNotifierProvider =
     StateNotifierProvider<BusinessNotifier, AsyncValue<List<BusinessModel>>>(
-  (ref) => BusinessNotifier(BusinessService()),
+  (ref) => BusinessNotifier(FirebaseBusinessService()),
 );

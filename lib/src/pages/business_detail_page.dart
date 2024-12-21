@@ -1,264 +1,311 @@
 import 'package:business_finder/src/models/business_model.dart';
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class BusinessDetailPage extends StatelessWidget {
-  const BusinessDetailPage({super.key, required this.business});
+  final BusinessModel? businessModel;
 
-  final BusinessModel business;
+  const BusinessDetailPage({super.key, this.businessModel});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.orangeAccent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            Navigator.of(context).pop();
-          },
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person_add),
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.share),
-            onPressed: () {},
-          ),
-        ],
+    final mockData = BusinessModel(
+      businessId: '1',
+      ownerId: '123',
+      name: 'AlpineCabin - Views!',
+      description:
+          'Enjoy breathtaking views, an outdoor shower, hot tub, and more in this scenic location.',
+      categoryId: 'luxury',
+      contactNumber: '+123456789',
+      email: 'contact@alpinecabin.com',
+      website: 'https://alpinecabin.com',
+      imageUrl: 'https://via.placeholder.com/800x400',
+      location: LocationModel(
+        latitude: 34.5322,
+        longitude: -83.9847,
+        address: '123 Mountain View Rd',
+        city: 'Dahlonega',
+        state: 'Georgia',
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header with business logo and name
-            Container(
-              color: Colors.orangeAccent,
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8.0),
-                    child: Image.network(
-                      business.imageUrl, // Replace with the business image URL
-                      width: 80,
-                      height: 80,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          business.name,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Proper Fish & Chips!',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.black45,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.favorite_border),
-                    onPressed: () {},
-                  ),
-                ],
+      averageRating: 5.0,
+      reviewCount: 216,
+      isFeatured: true,
+      createdAt: DateTime.now(),
+    );
+
+    final data = businessModel ?? mockData;
+
+    return Scaffold(
+      body: SafeArea(
+        child: CustomScrollView(
+          slivers: [
+            SliverAppBar(
+              expandedHeight: 300.0,
+              floating: false,
+              pinned: true,
+              backgroundColor: Colors.black,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+              ),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.share, color: Colors.white),
+                  onPressed: () {},
+                ),
+                IconButton(
+                  icon: const Icon(Icons.favorite_border, color: Colors.white),
+                  onPressed: () {},
+                ),
+              ],
+              flexibleSpace: FlexibleSpaceBar(
+                background: Image.network(
+                  data.imageUrl!,
+                  fit: BoxFit.cover,
+                ),
               ),
             ),
-
-            // Ratings and reviews
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                children: [
-                  Row(
-                    children: List.generate(5, (index) {
-                      return const Icon(
-                        Icons.star,
-                        color: Colors.orangeAccent,
-                        size: 24,
-                      );
-                    }),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    '4.6',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    '(16 Ratings)',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.blue,
-                    ),
-                  ),
-                  const Spacer(),
-                  const Icon(Icons.arrow_forward_ios, size: 16),
-                ],
-              ),
-            ),
-
-            const Divider(),
-
-            // Business attributes
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _BusinessAttribute(
-                    icon: Icons.diamond,
-                    label: 'First Class Service',
-                  ),
-                  _BusinessAttribute(
-                    icon: Icons.monetization_on,
-                    label: 'Affordable Prices',
-                  ),
-                  _BusinessAttribute(
-                    icon: Icons.business,
-                    label: 'Local Business',
-                  ),
-                ],
-              ),
-            ),
-
-            const Divider(),
-
-            // Call, Website, Map buttons
-            const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _BusinessActionButton(
-                    icon: Icons.phone,
-                    label: 'Call',
-                  ),
-                  _BusinessActionButton(
-                    icon: Icons.language,
-                    label: 'Website',
-                  ),
-                  _BusinessActionButton(
-                    icon: Icons.map,
-                    label: 'Map',
-                  ),
-                ],
-              ),
-            ),
-
-            const Divider(),
-
-            // Contact information and address
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(height: 8),
-                  Text(
-                    '+251-962437819',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    '123 St. Fiyel bet, Addis Ababa, Ethiopia',
-                    style: TextStyle(fontSize: 16),
-                  ),
-                ],
-              ),
-            ),
-
-            const Divider(),
-
-            // Open/Closed status
-            const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.access_time,
-                    color: Colors.red,
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    'Closed',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.red,
-                    ),
-                  ),
-                ],
-              ),
+            SliverList(
+              delegate: SliverChildListDelegate([
+                _buildTitleSection(data),
+                const Divider(),
+                _buildDetailsSection(data),
+                const Divider(),
+                _buildAmenitiesSection(),
+                const Divider(),
+                _buildMapSection(data.location!),
+              ]),
             ),
           ],
         ),
       ),
+      bottomNavigationBar: _buildBottomNavigationBar(data),
     );
   }
-}
 
-class _BusinessAttribute extends StatelessWidget {
-  final IconData icon;
-  final String label;
-
-  const _BusinessAttribute({
-    required this.icon,
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Icon(icon, size: 30, color: Colors.grey),
-        const SizedBox(height: 8),
-        Text(label, style: const TextStyle(fontSize: 14)),
-      ],
+  Widget _buildBottomNavigationBar(BusinessModel data) {
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Call Button
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: () {
+                _makePhoneCall(data.contactNumber!);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12.0),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              icon: const Icon(Icons.phone),
+              label: const Text(
+                'Call',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8), // Add space between the buttons
+          // Message Button
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () {
+                // _sendMessage(data.contactNumber);
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.orange,
+                side: const BorderSide(color: Colors.orange, width: 2),
+                padding: const EdgeInsets.symmetric(vertical: 12.0),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              icon: const Icon(Icons.star, color: Colors.orange),
+              label: const Text(
+                'Give Review',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
-}
 
-class _BusinessActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-
-  const _BusinessActionButton({
-    required this.icon,
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        CircleAvatar(
-          backgroundColor: Colors.grey[200],
-          child: Icon(icon, color: Colors.black),
-        ),
-        const SizedBox(height: 8),
-        Text(label, style: const TextStyle(fontSize: 14)),
-      ],
+  Widget _buildTitleSection(BusinessModel data) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            data.name,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Icon(Icons.star, color: Colors.orange, size: 16),
+              Text(data.averageRating.toStringAsFixed(1)),
+              const SizedBox(width: 8),
+              Text('(${data.reviewCount} Reviews)'),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text('${data.location!.city}, ${data.location!.state}'),
+        ],
+      ),
     );
+  }
+
+  Widget _buildDetailsSection(BusinessModel data) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            data.description!,
+            style: const TextStyle(fontSize: 16),
+          ),
+          const SizedBox(
+              height: 16), // Larger space below the description for clarity
+          Text(
+            'Contact: ${data.contactNumber}',
+            style: const TextStyle(fontSize: 14),
+          ),
+          const SizedBox(height: 8), // Space between contact and email
+          Text(
+            'Email: ${data.email}',
+            style: const TextStyle(fontSize: 14),
+          ),
+          if (data.website != null) ...[
+            const SizedBox(height: 8), // Space before website if it exists
+            Text(
+              'Website: ${data.website!}',
+              style: const TextStyle(fontSize: 14),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAmenitiesSection() {
+    final amenities = [
+      {'icon': Icons.landscape, 'label': 'Mountain view'},
+      {'icon': Icons.kitchen, 'label': 'Kitchen'},
+      {'icon': Icons.wifi, 'label': 'Wifi'},
+      {'icon': Icons.work, 'label': 'Dedicated workspace'},
+      {'icon': Icons.local_parking, 'label': 'Free parking'},
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'What this place offers',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          Column(
+            children: amenities.map((amenity) {
+              return Padding(
+                padding: const EdgeInsets.only(
+                    bottom: 12.0), // Adds space between rows
+                child: Row(
+                  children: [
+                    Icon(amenity['icon'] as IconData, size: 24),
+                    const SizedBox(width: 12),
+                    Text(
+                      amenity['label'] as String,
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMapSection(LocationModel location) {
+    final LatLng position = LatLng(location.latitude, location.longitude);
+
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Where you’ll be',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            height: 200,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: GoogleMap(
+                initialCameraPosition: CameraPosition(
+                  target: position,
+                  zoom: 14,
+                ),
+                markers: {
+                  Marker(
+                    markerId: const MarkerId('businessLocation'),
+                    position: position,
+                  ),
+                },
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(location.address),
+          Text('${location.city}, ${location.state}'),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _makePhoneCall(String number) async {
+    final Uri phoneUri = Uri(
+      scheme: 'tel',
+      path: number,
+    );
+
+    if (await canLaunchUrl(phoneUri)) {
+      await launchUrl(phoneUri);
+    } else {
+      throw 'Could not launch $number';
+    }
+  }
+
+  Future<void> _sendMessage(String number) async {
+    final Uri smsUri = Uri(
+      scheme: 'sms',
+      path: number,
+    );
+
+    if (await canLaunchUrl(smsUri)) {
+      await launchUrl(smsUri);
+    } else {
+      throw 'Could not send SMS to $number';
+    }
   }
 }

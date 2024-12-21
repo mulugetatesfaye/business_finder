@@ -31,6 +31,9 @@ migrate_working_dir/
 .pub/
 /build/
 
+# Ignore .env files to prevent committing sensitive keys
+.env
+
 # Symbolication related
 app.*.symbols
 
